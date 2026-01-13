@@ -58,7 +58,7 @@ def sanitize_name(text):
 
 def download_dvd_listing_images(soup, set_folder_path):
     print("  📀 Detected DVD listing page")
-
+    
     tables = soup.find_all("table")
     count = 0
 
@@ -110,7 +110,7 @@ def download_dvd_listing_images(soup, set_folder_path):
             except Exception as e:
                 print(f"  ⚠️ Error downloading DVD image: {e}")
 
-    print(f"📥 Downloaded {count} DVD covers.")
+    return count
 
 # =========================
 # CARD PAGE HANDLER
@@ -148,7 +148,18 @@ def download_images_from_page(driver, url):
 
     # DVD PAGE
     if "DVD listing" in page_title or "DVD_listing" in url:
-        download_dvd_listing_images(soup, set_folder_path)
+        count = download_dvd_listing_images(soup, set_folder_path)
+
+        if count > 0:
+            print(f"📥 Downloaded {count} cards from '{page_title}'.")
+            download_summary[page_title] = {
+                "name": "DVD Listing",
+                "count": count
+            }
+        else:
+            print(f"  ❌ No images downloaded. Skipping page.")
+            skip_urls.append(url)
+            
         return
     
     # CARD PAGE
