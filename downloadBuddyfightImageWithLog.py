@@ -14,10 +14,16 @@ from urllib.parse import urljoin
 from time import sleep
 from datetime import datetime
 
+# =========================
+# CONFIG
+# =========================
+
 BASE_URL = "https://buddyfight.fandom.com"
 CATEGORY_URL = f"{BASE_URL}/wiki/Category:Product"
+
 ROOT_FOLDER = "./BuddyfightImages"
 LOG_FOLDER = "./Download Log"
+
 os.makedirs(ROOT_FOLDER, exist_ok=True)
 os.makedirs(LOG_FOLDER, exist_ok=True)
 
@@ -28,6 +34,10 @@ SESSION_HEADERS = {
 }
 
 LOG_FILE = os.path.join(LOG_FOLDER, f"download_log-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt")
+
+# =========================
+# HELPERS
+# =========================
 
 def get_full_image_url(img_url):
     img_url = img_url.split("/revision")[0]
@@ -42,16 +52,20 @@ def get_full_image_url(img_url):
 def sanitize_name(text):
     return re.sub(r'[\\/*:<>|"?]', "_", text)
 
-options = Options()
+# =========================
+# SELENIUM SETUP
+# =========================
+
 options = Options()
 options.add_argument("--headless=new")  # modern headless mode
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
-# options.add_argument("--window-size=1920,1080")
-# options.add_argument("--disable-gpu")
-# options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 driver = webdriver.Chrome(options=options)
+
+# =========================
+# LOAD PRODUCT PAGES
+# =========================
 
 print("🔍 Loading product page list...")
 success = False
@@ -72,8 +86,7 @@ for attempt in range(3):
 if not success:
     raise SystemExit("❌ Failed to load product list.")
 
-html = driver.page_source
-soup = BeautifulSoup(html, "html.parser")
+soup = BeautifulSoup(driver.page_source, "html.parser")
 product_links = []
 for a in soup.select("a.category-page__member-link"):
     href = a.get("href", "")
@@ -84,6 +97,70 @@ for a in soup.select("a.category-page__member-link"):
 
 print(f"✅ Found {len(product_links)} product pages.")
 
+# =========================
+# DVD LISTING HANDLER
+# =========================
+
+def download_dvd_listing_images(soup, page_title, set_folder_path):
+    print("  📀 Detected DVD listing page")
+
+    tables = soup.find_all("table")
+    count = 0
+
+    for table in tables:
+        rows = table.select("tr")[1:]  # skip header
+
+        for row in rows:
+            img_tag = row.find("img")
+            if not img_tag:
+                continue
+
+            cols = row.select("td")
+            if len(cols) < 3:
+                continue
+
+            # Volume is usually the last column
+            volume_text = cols[-1].get_text(strip=True)
+            if not volume_text:
+                continue
+
+            volume = sanitize_name(volume_text)
+
+            img_url = img_tag.get("data-src") or img_tag.get("src")
+            if not img_url or "static.wikia.nocookie.net" not in img_url:
+                continue
+
+            img_url = get_full_image_url(img_url)
+
+            ext = os.path.splitext(img_url)[1].split("?")[0]
+            if not ext:
+                ext = ".png"
+
+            filename = f"{sanitize_name(page_title)} - {volume}{ext}"
+            filepath = os.path.join(set_folder_path, filename)
+
+            if os.path.exists(filepath):
+                continue
+
+            try:
+                r = requests.get(img_url, headers=SESSION_HEADERS, timeout=60)
+                r.raise_for_status()
+
+                with open(filepath, "wb") as f:
+                    f.write(r.content)
+
+                print(f"  ✅ {filename}")
+                count += 1
+
+            except Exception as e:
+                print(f"  ⚠️ Error downloading DVD image: {e}")
+
+    print(f"📥 Downloaded {count} DVD covers.")
+
+# =========================
+# CARD PAGE HANDLER
+# =========================
+
 failed_urls = []
 skip_urls = []
 download_summary = {} # stores {set_code: {"name": set_name, "count": num}}
@@ -93,13 +170,8 @@ def download_images_from_page(url):
     try:
         driver.set_page_load_timeout(120)
         driver.get(url)
-        # WebDriverWait(driver, 60).until(
-        #    lambda d: d.execute_script("return document.readyState") == "complete"
-        # )
 
-
-        initial_html = driver.page_source
-        if "<table" not in initial_html:
+        if "<table" not in driver.page_source:
             print(f"  ⏭ No <table> tag found. Skipping page early.")
             skip_urls.append(url)
             return
@@ -115,7 +187,16 @@ def download_images_from_page(url):
     soup = BeautifulSoup(driver.page_source, "html.parser")
     page_title = soup.select_one("h1").get_text(strip=True)
 
-    # Split into set code and set name if possible
+    set_folder = sanitize_name(page_title)
+    set_folder_path = os.path.join(ROOT_FOLDER, set_folder)
+    os.makedirs(set_folder_path, exist_ok=True)
+
+    # DVD PAGE
+    if "DVD listing" in page_title or "DVD_listing" in url:
+        download_dvd_listing_images(soup, set_folder_path)
+        return
+    
+    # CARD PAGE
     if ":" in page_title:
         set_code, set_name = page_title.split(":", 1)
         set_code = set_code.strip()
@@ -123,10 +204,6 @@ def download_images_from_page(url):
     else:
         set_code = page_title.strip()
         set_name = ""
-
-    set_folder = sanitize_name(page_title)
-    set_folder_path = os.path.join(ROOT_FOLDER, set_folder)
-    os.makedirs(set_folder_path, exist_ok=True)
 
     count = 0
     downloaded_files = []
@@ -175,12 +252,12 @@ def download_images_from_page(url):
 
             img_url = get_full_image_url(img_url)     
             ext = os.path.splitext(img_url)[1].split("?")[0]
+
             filename = f"{card_number} - {card_name}{ext}"
             filepath = os.path.join(set_folder_path, filename) 
             
             if os.path.exists(filepath): 
                 continue
-            
 
             for attempt in range(3):
                 try:
@@ -200,12 +277,16 @@ def download_images_from_page(url):
                     sleep(2)
 
 
-    if count == 0:
-        print(f"  ❌ No images downloaded. Skipping page.")
-        skip_urls.append(url)
-    else:
+    if count > 0:
         print(f"📥 Downloaded {count} cards from '{page_title}'.")
         download_summary[set_code] = {"name": set_name, "count": count}
+    else:
+        print(f"  ❌ No images downloaded. Skipping page.")
+        skip_urls.append(url)
+
+# =========================
+# MAIN LOOP
+# =========================
 
 for url in product_links:
     for attempt in range(3):
@@ -228,7 +309,10 @@ if failed_urls:
 
 driver.quit()
 
-# ✅ Write log file
+# =========================
+# LOG FILE
+# =========================
+
 total_images = sum(info["count"] for info in download_summary.values())
 
 with open(LOG_FILE, "w", encoding="utf-8") as f:
