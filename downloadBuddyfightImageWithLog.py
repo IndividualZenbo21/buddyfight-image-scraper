@@ -53,51 +53,6 @@ def sanitize_name(text):
     return re.sub(r'[\\/*:<>|"?]', "_", text)
 
 # =========================
-# SELENIUM SETUP
-# =========================
-
-options = Options()
-options.add_argument("--headless=new")  # modern headless mode
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
-driver = webdriver.Chrome(options=options)
-
-# =========================
-# LOAD PRODUCT PAGES
-# =========================
-
-print("🔍 Loading product page list...")
-success = False
-for attempt in range(3):
-    try:
-        driver.set_page_load_timeout(120)
-        driver.get(CATEGORY_URL)
-        WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.category-page__member-link")))
-        for y in range(0, 3000, 500):
-            driver.execute_script(f"window.scrollTo(0, {y});")
-            time.sleep(1)
-        success = True
-        break
-    except Exception as e:
-        print(f"  ⚠️ Timeout loading product list (attempt {attempt+1}/3): {e}")
-        time.sleep(5)
-
-if not success:
-    raise SystemExit("❌ Failed to load product list.")
-
-soup = BeautifulSoup(driver.page_source, "html.parser")
-product_links = []
-for a in soup.select("a.category-page__member-link"):
-    href = a.get("href", "")
-    if href.startswith("/wiki/") and "Category:" not in href:
-        full_url = urljoin(BASE_URL, href)
-        if full_url not in product_links:
-            product_links.append(full_url)
-
-print(f"✅ Found {len(product_links)} product pages.")
-
-# =========================
 # DVD LISTING HANDLER
 # =========================
 
@@ -165,7 +120,7 @@ failed_urls = []
 skip_urls = []
 download_summary = {} # stores {set_code: {"name": set_name, "count": num}}
 
-def download_images_from_page(url):
+def download_images_from_page(driver, url):
     print(f"\n🔍 Scraping: {url}")
     try:
         driver.set_page_load_timeout(120)
@@ -284,47 +239,101 @@ def download_images_from_page(url):
         print(f"  ❌ No images downloaded. Skipping page.")
         skip_urls.append(url)
 
-# =========================
-# MAIN LOOP
-# =========================
 
-for url in product_links:
-    for attempt in range(3):
-        try:
-            download_images_from_page(url)
-            break
-        except Exception as e:
-            print(f"  ⚠️ Retry {attempt+1}: {e}")
-            sleep(3)
-    else:
-        failed_urls.append(url)
+def main():
+    # =========================
+    # SELENIUM SETUP
+    # =========================
 
-if failed_urls:
-    print("\n🔁 Retrying failed pages after initial run:")
-    for url in failed_urls:
-        try:
-            download_images_from_page(url)
-        except Exception as e:
-            print(f"  ❌ Final failure for {url}: {e}")
+    options = Options()
+    options.add_argument("--headless=new")  # modern headless mode
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
+    
+    driver = webdriver.Chrome(options=options)
 
-driver.quit()
+    try: 
+        # =========================
+        # LOAD PRODUCT PAGES
+        # =========================
 
-# =========================
-# LOG FILE
-# =========================
+        print("🔍 Loading product page list...")
+        success = False
+        for attempt in range(3):
+            try:
+                driver.set_page_load_timeout(120)
+                driver.get(CATEGORY_URL)
+                WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.category-page__member-link")))
+                for y in range(0, 3000, 500):
+                    driver.execute_script(f"window.scrollTo(0, {y});")
+                    time.sleep(1)
+                success = True
+                break
+            except Exception as e:
+                print(f"  ⚠️ Timeout loading product list (attempt {attempt+1}/3): {e}")
+                time.sleep(5)
 
-total_images = sum(info["count"] for info in download_summary.values())
+        if not success:
+            raise SystemExit("❌ Failed to load product list.")
 
-with open(LOG_FILE, "w", encoding="utf-8") as f:
-    f.write("Buddyfight Image Scraper - Download Summary\n")
-    f.write("=" * 50 + "\n\n")
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        product_links = []
+        for a in soup.select("a.category-page__member-link"):
+            href = a.get("href", "")
+            if href.startswith("/wiki/") and "Category:" not in href:
+                full_url = urljoin(BASE_URL, href)
+                if full_url not in product_links:
+                    product_links.append(full_url)
 
-    for set_code, info in download_summary.items():
-        name = f" - {info['name']}" if info["name"] else ""
-        f.write(f"{set_code}{name}: {info['count']} images\n")
+        print(f"✅ Found {len(product_links)} product pages.")
 
-    f.write("=" * 50 + "\n")
-    f.write(f"TOTAL: {total_images} images downloaded\n")
+        # =========================
+        # MAIN LOOP
+        # =========================
+
+        for url in product_links:
+            for attempt in range(3):
+                try:
+                    download_images_from_page(driver, url)
+                    break
+                except Exception as e:
+                    print(f"  ⚠️ Retry {attempt+1}: {e}")
+                    sleep(3)
+            else:
+                failed_urls.append(url)
+
+        if failed_urls:
+            print("\n🔁 Retrying failed pages after initial run:")
+            for url in failed_urls:
+                try:
+                    download_images_from_page(driver, url)
+                except Exception as e:
+                    print(f"  ❌ Final failure for {url}: {e}")
+
+    finally:
+        driver.quit()
+
+    # =========================
+    # LOG FILE
+    # =========================
+
+    total_images = sum(info["count"] for info in download_summary.values())
+
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        f.write("Buddyfight Image Scraper - Download Summary\n")
+        f.write("=" * 50 + "\n\n")
+
+        for set_code, info in download_summary.items():
+            name = f" - {info['name']}" if info["name"] else ""
+            f.write(f"{set_code}{name}: {info['count']} images\n")
+
+        f.write("=" * 50 + "\n")
+        f.write(f"TOTAL: {total_images} images downloaded\n")
 
 
-print(f"\n✅ All done! Images saved to 'BuddyfightImages'. Log written to '{LOG_FILE}'.")
+    print(f"\n✅ All done! Images saved to 'BuddyfightImages'. Log written to '{LOG_FILE}'.")
+
+
+if __name__ == "__main__":
+    main()
