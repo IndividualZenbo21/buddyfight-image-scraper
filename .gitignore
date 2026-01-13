@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env/
+
+# Downloads
+BuddyfightImages/
+Download Log/
+
+# OS
+.DS_Store
+Thumbs.db
