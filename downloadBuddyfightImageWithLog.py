@@ -101,7 +101,7 @@ print(f"✅ Found {len(product_links)} product pages.")
 # DVD LISTING HANDLER
 # =========================
 
-def download_dvd_listing_images(soup, page_title, set_folder_path):
+def download_dvd_listing_images(soup, set_folder_path):
     print("  📀 Detected DVD listing page")
 
     tables = soup.find_all("table")
@@ -136,7 +136,7 @@ def download_dvd_listing_images(soup, page_title, set_folder_path):
             if not ext:
                 ext = ".png"
 
-            filename = f"{sanitize_name(page_title)} - {volume}{ext}"
+            filename = f"Future Card Buddyfight DVD - {volume}{ext}"
             filepath = os.path.join(set_folder_path, filename)
 
             if os.path.exists(filepath):
