@@ -10,6 +10,7 @@ from time import sleep
 
 from config import BASE_URL, CATEGORY_URL, LOG_FILE
 from card_handler import download_images_from_page, failed_urls, download_summary
+from helpers import get_input_links
 
 def main():
     # =========================
@@ -29,35 +30,42 @@ def main():
         # LOAD PRODUCT PAGES
         # =========================
 
-        print("🔍 Loading product page list...")
-        success = False
-        for attempt in range(3):
-            try:
-                driver.set_page_load_timeout(120)
-                driver.get(CATEGORY_URL)
-                WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.category-page__member-link")))
-                for y in range(0, 3000, 500):
-                    driver.execute_script(f"window.scrollTo(0, {y});")
-                    time.sleep(1)
-                success = True
-                break
-            except Exception as e:
-                print(f"  ⚠️ Timeout loading product list (attempt {attempt+1}/3): {e}")
-                time.sleep(5)
+        input_links = get_input_links()
 
-        if not success:
-            raise SystemExit("❌ Failed to load product list.")
+        if input_links: 
+            product_links = input_links
+            print(f"🔗 Using {len(product_links)} manually provided links.")
+        
+        else:
+            print("🔍 Loading product page list...")
+            success = False
+            for attempt in range(3):
+                try:
+                    driver.set_page_load_timeout(120)
+                    driver.get(CATEGORY_URL)
+                    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.category-page__member-link")))
+                    for y in range(0, 3000, 500):
+                        driver.execute_script(f"window.scrollTo(0, {y});")
+                        time.sleep(1)
+                    success = True
+                    break
+                except Exception as e:
+                    print(f"  ⚠️ Timeout loading product list (attempt {attempt+1}/3): {e}")
+                    time.sleep(5)
 
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        product_links = []
-        for a in soup.select("a.category-page__member-link"):
-            href = a.get("href", "")
-            if href.startswith("/wiki/") and "Category:" not in href:
-                full_url = urljoin(BASE_URL, href)
-                if full_url not in product_links:
-                    product_links.append(full_url)
+            if not success:
+                raise SystemExit("❌ Failed to load product list.")
 
-        print(f"✅ Found {len(product_links)} product pages.")
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            product_links = []
+            for a in soup.select("a.category-page__member-link"):
+                href = a.get("href", "")
+                if href.startswith("/wiki/") and "Category:" not in href:
+                    full_url = urljoin(BASE_URL, href)
+                    if full_url not in product_links:
+                        product_links.append(full_url)
+
+            print(f"✅ Found {len(product_links)} product pages.")
 
         # =========================
         # MAIN LOOP
